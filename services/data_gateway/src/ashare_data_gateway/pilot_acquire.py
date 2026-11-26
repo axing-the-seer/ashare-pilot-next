@@ -154,9 +154,44 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--window-end", default="")
     parser.add_argument("--publication-root", default="")
     parser.add_argument("--generated-at", default="")
+    parser.add_argument("--verify-source-receipt", default="")
+    parser.add_argument("--source-root", default="")
+    parser.add_argument("--dataset-id", default="")
+    parser.add_argument("--manifest-sha256", default="")
+    parser.add_argument("--trade-date", default="")
+    parser.add_argument("--expected-rows", type=int)
+    parser.add_argument("--as-of", default="")
     args = parser.parse_args(argv)
 
     try:
+        if args.verify_source_receipt:
+            if args.probe or not all(
+                (
+                    args.publication_root,
+                    args.source_root,
+                    args.dataset_id,
+                    args.manifest_sha256,
+                    args.trade_date,
+                    args.expected_rows is not None,
+                    args.as_of,
+                )
+            ):
+                parser.error("source verification requires explicit roots, binding and cutoff")
+            from .daily_source_verification import verify_daily_partition
+
+            result = verify_daily_partition(
+                publication_root=Path(args.publication_root),
+                source_root=Path(args.source_root),
+                dataset_id=args.dataset_id,
+                manifest_sha256=args.manifest_sha256,
+                trade_date=date.fromisoformat(args.trade_date),
+                rows=args.expected_rows,
+                receipt_id=args.verify_source_receipt,
+                as_of=datetime.fromisoformat(args.as_of.replace("Z", "+00:00")),
+            )
+            json.dump(result, sys.stdout, ensure_ascii=True)
+            sys.stdout.write("\n")
+            return EXIT_OK
         if args.probe:
             json.dump(probe_vendor(), sys.stdout, ensure_ascii=True)
             sys.stdout.write("\n")

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.ashare-pilot.local/daily-source-verification/1.0.0",
+  "title": "Daily source verification for an explicit binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_id", "schema_version", "dataset_id", "manifest_sha256", "trade_date", "as_of", "source_kind",
+    "binding_origin", "source_link", "source_receipt_id", "table_id", "source_received_at",
+    "partition_generated_at", "available_at",
+    "historical_pit_qualified", "rows"
+  ],
+  "properties": {
+    "contract_id": {"const": "daily-source-verification"},
+    "schema_version": {"const": "1.0.0"},
+    "dataset_id": {"type": "string", "pattern": "^dataset-sha256-[a-f0-9]{64}$"},
+    "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "trade_date": {"type": "string", "format": "date"},
+    "as_of": {"type": "string", "format": "date-time"},
+    "binding_origin": {"const": "caller-supplied"},
+    "source_link": {"const": "matching-content-only"},
+    "source_kind": {"const": "captured_daily"},
+    "source_receipt_id": {"type": "string", "pattern": "^source-receipt-sha256-[a-f0-9]{64}$"},
+    "table_id": {"type": "string", "pattern": "^source-table-sha256-[a-f0-9]{64}$"},
+    "source_received_at": {"type": "string", "format": "date-time"},
+    "partition_generated_at": {"type": "string", "format": "date-time"},
+    "available_at": {"type": "string", "format": "date-time", "description": "Source receipt availability only; not a dataset generation time."},
+    "historical_pit_qualified": {"const": false},
+    "rows": {"type": "integer", "minimum": 1}
+  }
+}

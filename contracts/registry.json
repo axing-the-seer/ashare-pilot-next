@@ -2,6 +2,12 @@
   "registry_version": "2.0.0",
   "contracts": [
     {
+      "contract_id": "daily-source-verification",
+      "schema_version": "1.0.0",
+      "schema": "schemas/daily-source-verification.schema.json",
+      "examples": ["examples/daily-source-verification.example.json"]
+    },
+    {
       "contract_id": "coverage-audit",
       "schema_version": "1.0.0",
       "schema": "schemas/coverage-audit.schema.json",

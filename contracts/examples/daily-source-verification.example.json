@@ -1,0 +1,18 @@
+{
+  "contract_id": "daily-source-verification",
+  "schema_version": "1.0.0",
+  "dataset_id": "dataset-sha256-0000000000000000000000000000000000000000000000000000000000000001",
+  "manifest_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+  "trade_date": "2026-11-26",
+  "as_of": "2026-11-26T14:00:00+00:00",
+  "binding_origin": "caller-supplied",
+  "source_link": "matching-content-only",
+  "source_kind": "captured_daily",
+  "source_receipt_id": "source-receipt-sha256-0000000000000000000000000000000000000000000000000000000000000003",
+  "table_id": "source-table-sha256-0000000000000000000000000000000000000000000000000000000000000004",
+  "source_received_at": "2026-11-26T13:42:45+00:00",
+  "partition_generated_at": "2026-11-26T11:50:09+00:00",
+  "available_at": "2026-11-26T13:42:45+00:00",
+  "historical_pit_qualified": false,
+  "rows": 1
+}
