@@ -20,6 +20,13 @@ day with a short-lived mapping, closes that mapping, and does not read model
 weights. It does not prove first-delivery time, completeness of the upstream
 market data, statistical quality or production eligibility.
 
+The cache producer and reader require nonempty, strictly increasing ISO dates,
+unique symbols, and feature and label axes aligned to those dates and symbols.
+The labels must contain all three declared horizons, though individual missing
+labels remain `NaN`. The reader also checks the price array axes. Before reusing
+an existing cache directory, the producer verifies its expected contents; a
+conflict is rejected without replacing the existing directory.
+
 The checked-in semantic document is the exact ordered `production50` document
 from the previously reviewed registry, with SHA-256
 `07b586cfb06aa1012f935e883946f7623f3c2bac4556225c1a8a8359562ffcb4`.

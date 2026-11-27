@@ -6,8 +6,10 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +18,7 @@ from ashare_research_app.daily_model_v2_inputs import (
     SEMANTICS_SHA256,
     RowMappedArray,
     _semantics,
+    load_inputs,
     validate_partitions,
 )
 from ashare_research_app.immutable_artifacts import publish
@@ -49,6 +52,7 @@ def make_sources(repo: Path):
     base = np.zeros((3, 3, 36), dtype=np.float32)
     base[0, 0, 0] = np.nan
     labels = np.arange(27, dtype=np.float32).reshape(3, 3, 3) / 100
+    labels[2, 2, 2] = np.nan  # A missing future label is valid, a missing horizon is not.
     financial = np.zeros((3, 3, 14), dtype=np.float32)
     financial[2, 2, 0] = 0.25
     industries = np.array([[0, 1, 1]] * 3, dtype=np.int16)
@@ -248,3 +252,138 @@ def test_immutable_publication_accepts_identical_bytes_only(tmp_path):
     with pytest.raises(ValueError, match="collision"):
         publish(path, b"different")
     assert path.read_bytes() == b"one"
+
+
+def _replace_panel(source, variation):
+    root = source["repo"] / "runtime/all-market-data"
+    panel_root = root / "panels"
+    panel = json.loads((panel_root / f"{source['panel_manifest_id']}.json").read_bytes())
+    with np.load(panel_root / f"{panel['panel_id']}.npz", allow_pickle=False) as data:
+        fields = {name: data[name] for name in ("features", "labels", "days", "symbols")}
+    if variation == "unordered_days":
+        fields["days"] = fields["days"][[2, 0, 1]]
+    elif variation == "missing_horizon":
+        fields["labels"] = fields["labels"][:, :, :2]
+    elif variation == "missing_day":
+        fields["labels"] = fields["labels"][:-1]
+    elif variation == "missing_symbol":
+        fields["labels"] = fields["labels"][:, :-1]
+    elif variation == "duplicate_symbol":
+        fields["symbols"][1] = fields["symbols"][0]
+    elif variation == "incorrect_manifest_horizons":
+        panel["horizons"] = [5, 10]
+    else:
+        raise AssertionError(variation)
+    temporary = panel_root / "replacement.npz"
+    np.savez(temporary, **fields)
+    panel["panel_id"] = "market-panel-sha256-" + _digest(temporary.read_bytes())
+    temporary.rename(panel_root / f"{panel['panel_id']}.npz")
+    panel_id = _publish_json(panel_root, "market-panel-manifest", panel)
+    overlay_root = root / "fundamentals/overlays"
+    overlay = json.loads((overlay_root / f"{source['overlay_manifest_id']}.json").read_bytes())
+    overlay["base_manifest_id"] = panel_id
+    source["panel_manifest_id"] = panel_id
+    source["overlay_manifest_id"] = _publish_json(
+        overlay_root, "market-fundamental-overlay-manifest", overlay
+    )
+
+
+@pytest.mark.parametrize("variation", [
+    "unordered_days", "missing_horizon", "missing_day", "missing_symbol", "duplicate_symbol",
+    "incorrect_manifest_horizons",
+])
+def test_normal_cache_producer_rejects_malformed_panel(tmp_path, variation):
+    source = make_sources(tmp_path)
+    _replace_panel(source, variation)
+    result = run_cache(source)
+    assert result.returncode != 0
+    expected = "invalid composite panel" if variation == "incorrect_manifest_horizons" else (
+        "cache extraction child failed"
+    )
+    assert expected in result.stderr
+    cache_root = tmp_path / "runtime/all-market-data/model-v2-cache"
+    assert not list(cache_root.glob("daily-model-v2-cache-sha256-*.json"))
+
+
+@pytest.fixture(scope="module")
+def valid_cache(tmp_path_factory):
+    source = make_sources(tmp_path_factory.mktemp("valid-cache"))
+    result = run_cache(source)
+    assert result.returncode == 0, result.stderr
+    return source, json.loads(result.stdout)["cache_id"]
+
+
+def _alter_cache(source, cache_id, variation):
+    root = source["repo"] / "runtime/all-market-data/model-v2-cache"
+    document = json.loads((root / f"{cache_id}.json").read_bytes())
+    cache_dir = root / cache_id
+    name = {"unordered_days": "days.npy", "bad_price_shape": "opens.npy"}.get(
+        variation, "labels.npy"
+    )
+    path = cache_dir / name
+    value = np.load(path, allow_pickle=False)
+    if variation == "unordered_days":
+        value = value[[2, 0, 1]]
+        document["price_metadata"]["days"] = list(map(str, value[document["price_first_index"]:]))
+    elif variation == "missing_horizon":
+        value = value[:, :, :2]
+    elif variation == "missing_day":
+        value = value[:-1]
+    elif variation in {"missing_symbol", "bad_price_shape"}:
+        value = value[:, :-1]
+    else:
+        raise AssertionError(variation)
+    np.save(path, value, allow_pickle=False)
+    binding = next(item for item in document["files"] if item["path"] == name)
+    binding.update(sha256=_digest(path.read_bytes()), shape=list(value.shape),
+                   dtype=str(value.dtype), bytes=path.stat().st_size)
+    raw = _json(document)
+    changed_id = "daily-model-v2-cache-sha256-" + _digest(raw)
+    cache_dir.rename(root / changed_id)
+    (root / f"{changed_id}.json").write_bytes(raw)
+    return changed_id
+
+
+@pytest.mark.parametrize("variation", [
+    "unordered_days", "missing_horizon", "missing_day", "missing_symbol", "bad_price_shape",
+])
+def test_consumer_and_verify_reject_self_consistent_invalid_cache(tmp_path, valid_cache, variation):
+    original, cache_id = valid_cache
+    repo = tmp_path / "repo"
+    shutil.copytree(original["repo"], repo)
+    source = dict(original, repo=repo)
+    changed_id = _alter_cache(source, cache_id, variation)
+    expected = "price cache arrays" if variation == "bad_price_shape" else "panel"
+    with pytest.raises(ValueError, match=expected):
+        load_inputs(repo, source["panel_manifest_id"], source["overlay_manifest_id"],
+                    source["risk_id"], changed_id, as_of=datetime.fromisoformat(AS_OF))
+    result = run_cache(source, verify=changed_id)
+    assert result.returncode != 0 and expected in result.stderr
+
+
+def test_cache_producer_reuses_intact_existing_cache(tmp_path, valid_cache):
+    original, cache_id = valid_cache
+    repo = tmp_path / "repo"
+    shutil.copytree(original["repo"], repo)
+    source = dict(original, repo=repo)
+    root = repo / "runtime/all-market-data/model-v2-cache"
+    before = _snapshot(root)
+    result = run_cache(source)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["cache_id"] == cache_id
+    assert _snapshot(root) == before
+
+
+def test_cache_producer_rejects_corrupt_existing_cache(tmp_path, valid_cache):
+    original, cache_id = valid_cache
+    repo = tmp_path / "repo"
+    shutil.copytree(original["repo"], repo)
+    source = dict(original, repo=repo)
+    path = repo / "runtime/all-market-data/model-v2-cache" / cache_id / "features.npy"
+    with path.open("ab") as output:
+        output.write(b"corruption")
+    before = path.read_bytes()
+    result = run_cache(source)
+    assert result.returncode != 0
+    assert "existing model-v2 cache content mismatch" in result.stderr
+    assert path.read_bytes() == before

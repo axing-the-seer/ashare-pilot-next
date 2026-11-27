@@ -13,9 +13,11 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+from ashare_quant_core.daily_selection import validate_panel_axes
 
 from .canonical import canonical_json_bytes
 from .daily_inference_inputs import _apply_risk_history, _load_recent_prices
+from .daily_model_v2_inputs import validate_overlay_manifest, validate_panel_manifest
 from .immutable_artifacts import digest, read_regular
 from .immutable_artifacts import file_digest as _file_digest
 from .immutable_artifacts import publish as _publish
@@ -34,6 +36,7 @@ def _extract_panel(panel_path, risk_document, output):
     with np.load(panel_path, allow_pickle=False) as panel:
         x, y = panel["features"], panel["labels"]
         days, symbols = panel["days"], panel["symbols"]
+        validate_panel_axes(x, y, days, symbols, feature_count=36, horizon_count=3)
         exclusions = _apply_risk_history(x, y, days, symbols, risk_document)
         np.save(output / "features.npy", x, allow_pickle=False)
         np.save(output / "labels.npy", y, allow_pickle=False)
@@ -104,6 +107,8 @@ def build(
     risk_document, risk_raw = _hashed_json(
         data_root / "risk", risk_id, "market-risk-history"
     )
+    validate_panel_manifest(panel_manifest, as_of=as_of)
+    validate_overlay_manifest(overlay_manifest, panel_manifest_id, as_of=as_of)
     if (
         overlay_manifest.get("base_manifest_id") != panel_manifest_id
         or datetime.fromisoformat(panel_manifest["as_of"]) > as_of
@@ -176,6 +181,13 @@ def build(
         if target.exists():
             if target.is_symlink() or not target.is_dir():
                 raise ValueError("cache target is not a directory")
+            expected_hashes = {item["path"]: item["sha256"] for item in files}
+            expected_hashes.update({
+                "price-metadata.json": digest(price_metadata_raw),
+                "risk-exclusions.json": digest(risk_exclusions_raw),
+            })
+            if any(_file_digest(target / name) != sha for name, sha in expected_hashes.items()):
+                raise ValueError("existing model-v2 cache content mismatch")
             shutil.rmtree(temporary)
         else:
             os.rename(temporary, target)

@@ -14,6 +14,7 @@ from importlib.resources import files
 from pathlib import Path
 
 import numpy as np
+from ashare_quant_core.daily_selection import validate_panel_axes
 
 from .immutable_artifacts import digest, file_digest, read_regular
 
@@ -98,6 +99,31 @@ def _hashed_json(root: Path, identifier: str, prefix: str) -> tuple[dict, bytes]
     return json.loads(raw), raw
 
 
+def validate_panel_manifest(panel, *, as_of):
+    specs = _semantics()
+    base_names = tuple(item["name"] for item in specs[:36])
+    if (
+        panel.get("format") != "all-market-panel/v3"
+        or tuple(panel.get("features", ())) != base_names
+        or tuple(panel.get("horizons", ())) != (5, 10, 20)
+        or datetime.fromisoformat(panel["as_of"]) > as_of
+    ):
+        raise ValueError("invalid composite panel")
+    return base_names
+
+
+def validate_overlay_manifest(overlay, panel_manifest_id, *, as_of):
+    financial_names = tuple(item["name"] for item in _semantics()[36:])
+    if (
+        overlay.get("format") != "market-fundamental-overlay-manifest/v1"
+        or overlay.get("base_manifest_id") != panel_manifest_id
+        or tuple(overlay.get("features", ())) != financial_names
+        or datetime.fromisoformat(overlay["as_of"]) > as_of
+    ):
+        raise ValueError("invalid fundamental overlay manifest")
+    return financial_names
+
+
 def load_inputs(repo, panel_manifest_id, overlay_manifest_id, risk_id, cache_id, *, as_of):
     """Load the same cache/source bindings used by the existing v2 research reader."""
     if not isinstance(as_of, datetime) or as_of.tzinfo is None or as_of.utcoffset() is None:
@@ -106,27 +132,12 @@ def load_inputs(repo, panel_manifest_id, overlay_manifest_id, risk_id, cache_id,
     panel, panel_raw = _hashed_json(
         data_root / "panels", panel_manifest_id, "market-panel-manifest"
     )
-    specs = _semantics()
-    base_names = tuple(item["name"] for item in specs[:36])
-    financial_names = tuple(item["name"] for item in specs[36:])
-    if (
-        panel.get("format") != "all-market-panel/v3"
-        or tuple(panel.get("features", ())) != base_names
-        or tuple(panel.get("horizons", ())) != (5, 10, 20)
-        or datetime.fromisoformat(panel["as_of"]) > as_of
-    ):
-        raise ValueError("invalid composite panel")
+    base_names = validate_panel_manifest(panel, as_of=as_of)
     overlay, overlay_raw = _hashed_json(
         data_root / "fundamentals/overlays", overlay_manifest_id,
         "market-fundamental-overlay-manifest",
     )
-    if (
-        overlay.get("format") != "market-fundamental-overlay-manifest/v1"
-        or overlay.get("base_manifest_id") != panel_manifest_id
-        or tuple(overlay.get("features", ())) != financial_names
-        or datetime.fromisoformat(overlay["as_of"]) > as_of
-    ):
-        raise ValueError("invalid fundamental overlay manifest")
+    financial_names = validate_overlay_manifest(overlay, panel_manifest_id, as_of=as_of)
     risk, risk_raw = _hashed_json(data_root / "risk", risk_id, "market-risk-history")
     if datetime.fromisoformat(risk["as_of"]) > as_of:
         raise ValueError("risk history unavailable at as_of")
@@ -162,19 +173,29 @@ def load_inputs(repo, panel_manifest_id, overlay_manifest_id, risk_id, cache_id,
 
         x, y = arrays["features.npy"], arrays["labels.npy"]
         financial, industries = arrays["financial.npy"], arrays["industries.npy"]
+        days, symbols = arrays["days.npy"], arrays["symbols.npy"]
+        validate_panel_axes(
+            x, y, days, symbols, feature_count=len(base_names), horizon_count=len(panel["horizons"])
+        )
         validate_partitions(
             RowMappedArray(cache_root / "features.npy"),
             RowMappedArray(cache_root / "financial.npy"),
             base_names=base_names,
             financial_names=financial_names,
         )
-        days, symbols = arrays["days.npy"], arrays["symbols.npy"]
         if x.shape[:2] != financial.shape[:2] or x.shape[:2] != industries.shape:
             raise ValueError("model-v2 cache arrays are not aligned")
         price_first_index = int(cache["price_first_index"])
         price_days = cache["price_metadata"]["days"]
-        if price_days != [str(value) for value in days[price_first_index:]]:
+        if not 0 <= price_first_index < len(days) or price_days != [
+            str(value) for value in days[price_first_index:]
+        ]:
             raise ValueError("model-v2 price cache is not aligned")
+        if any(
+            arrays[f"{name}.npy"].shape != (len(price_days), len(symbols))
+            for name in ("opens", "closes", "volumes", "amounts")
+        ):
+            raise ValueError("model-v2 price cache arrays are not aligned")
         retained = {
             "features.npy", "labels.npy", "financial.npy", "industries.npy",
             "industry-labels.npy", "days.npy", "symbols.npy", "opens.npy", "closes.npy",

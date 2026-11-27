@@ -99,15 +99,43 @@ def choose_targets(ranked, symbols, industries, holdings):
     return selected
 
 
+def validate_panel_axes(x, y, days, symbols, *, feature_count=None, horizon_count=None):
+    """Reject ambiguous axes before risk intervals or training use positional rows."""
+    if getattr(days, "ndim", 1) != 1 or getattr(symbols, "ndim", 1) != 1:
+        raise ValueError("panel dates and symbols must be one-dimensional")
+    ordered_days = [str(value) for value in days]
+    ordered_symbols = [str(value) for value in symbols]
+    if not ordered_days or not ordered_symbols:
+        raise ValueError("panel dates and symbols must be nonempty")
+    try:
+        parsed_days = [date.fromisoformat(day) for day in ordered_days]
+    except ValueError:
+        raise ValueError("invalid panel dates") from None
+    if any(day.isoformat() != raw for day, raw in zip(parsed_days, ordered_days, strict=True)):
+        raise ValueError("invalid panel dates")
+    if any(left >= right for left, right in zip(parsed_days, parsed_days[1:], strict=False)):
+        raise ValueError("panel dates must be strictly increasing")
+    if any(not symbol for symbol in ordered_symbols) or len(set(ordered_symbols)) != len(
+        ordered_symbols
+    ):
+        raise ValueError("panel symbols must be nonempty and unique")
+    expected = (len(ordered_days), len(ordered_symbols))
+    if len(x.shape) != 3 or len(y.shape) != 3 or x.shape[:2] != expected or y.shape[:2] != expected:
+        raise ValueError("panel features and labels are not aligned with dates and symbols")
+    if feature_count is not None and x.shape[2] != feature_count:
+        raise ValueError("panel feature count mismatch")
+    if horizon_count is not None and y.shape[2] != horizon_count:
+        raise ValueError("panel label horizon count mismatch")
+    return ordered_days
+
+
 def apply_risk_history(x, y, days, symbols, document, *, array_ops) -> dict[str, int]:
     np = array_ops
     if document.get("format") != "market-risk-history/v1":
         raise ValueError("invalid market risk history")
     if document.get("policy_id") != RISK_NAME_POLICY_ID:
         raise ValueError("unexpected market risk policy")
-    ordered_days = [str(value) for value in days]
-    if len(set(ordered_days)) != len(ordered_days):
-        raise ValueError("duplicate panel dates")
+    ordered_days = validate_panel_axes(x, y, days, symbols)
     # A dated exchange-state snapshot is not a history. Refuse to extend it
     # beyond its explicit coverage, especially in model training or backtests.
     coverage = document.get("coverage")
