@@ -35,6 +35,7 @@ from .tushare_transport import (
     Transport,
     TransportRequest,
     TransportResponse,
+    TushareRateLimitError,
     TushareTransientError,
 )
 
@@ -51,6 +52,10 @@ class TokenMissingError(Exception):
 
     def __init__(self) -> None:
         super().__init__(f"{TOKEN_ENV_VAR} environment variable is not set")
+
+
+class DailyMarketDataUnavailable(ValueError):
+    """No dated whole-market rows yet; never a publishable empty dataset."""
 
 
 def _read_token() -> str:
@@ -147,6 +152,9 @@ class TushareClient:
         for attempt in range(self._max_retries):
             try:
                 return self._transport.send(request, token=token)
+            except TushareRateLimitError:
+                del token
+                raise
             except TushareTransientError as exc:
                 last_error = exc
                 if attempt < self._max_retries - 1:
@@ -166,6 +174,8 @@ class TushareClient:
         params: tuple[tuple[str, str], ...],
         fields: tuple[str, ...],
         token: str,
+        page_size: int | None = None,
+        capture_sink: Callable[[object], None] | None = None,
     ) -> TransportResponse:
         """Fetch all pages and merge items. Fails on duplicate primary keys upstream.
 
@@ -176,6 +186,11 @@ class TushareClient:
         """
         secret = SecretToken(token)
         del token
+        effective_page_size = (
+            self._page_size if page_size is None else min(page_size, self._page_size)
+        )
+        if effective_page_size < 1:
+            raise ValueError("page_size must be positive")
         if len(set(fields)) != len(fields):
             raise ValueError(f"{api_name}: requested fields contain duplicates")
         requested_field_set = frozenset(fields)
@@ -198,7 +213,7 @@ class TushareClient:
                 params=params,
                 fields=fields,
                 offset=offset,
-                limit=self._page_size,
+                limit=effective_page_size,
             )
             begin_page = getattr(self._transport, "begin_page", None)
             if callable(begin_page):
@@ -224,6 +239,15 @@ class TushareClient:
             extra_fields = tuple(
                 field for field in response_fields if field not in requested_field_set
             )
+            # Some compatible providers return the default daily field list
+            # when a completed day's data has not been published yet. Classify
+            # only this empty first-page shape; populated/schema-invalid pages
+            # still fail the exact field contract below.
+            if (api_name == "daily" and offset == 0 and not response.items
+                and len(params) == 1 and params[0][0] == "trade_date"
+                and not missing_fields
+                and set(extra_fields) <= {"pre_close", "change", "pct_chg", "ah_vol", "ah_amount"}):
+                raise DailyMarketDataUnavailable("provider returned no market bars")
             if missing_fields or extra_fields:
                 raise ValueError(
                     f"{api_name}: page {page_num} response fields do not match request: "
@@ -251,20 +275,28 @@ class TushareClient:
 
             all_items.extend(page_items)
 
-            if len(response.items) < self._page_size:
+            if len(response.items) < effective_page_size:
                 break
-            offset += self._page_size
+            offset += effective_page_size
         else:
             raise ValueError(
                 f"{api_name}: exceeded maximum page limit ({MAX_PAGES})"
             )
 
-        return TransportResponse(
+        result = TransportResponse(
             code=0,
             msg="",
             fields=fields,
             items=tuple(all_items),
         )
+        observe = getattr(self._transport, "on_complete_response", None)
+        if callable(observe):
+            captured = observe(api_name=api_name, params=params, response=result)
+            if capture_sink is not None:
+                capture_sink(captured)
+        elif capture_sink is not None:
+            capture_sink(None)
+        return result
 
     # ------------------------------------------------------------------
     # trade_cal
@@ -566,27 +598,45 @@ class TushareClient:
         if end_date < start_date:
             raise ValueError("daily: end_date cannot precede start_date")
 
-        fields = (
-            "ts_code",
-            "trade_date",
-            "open",
-            "high",
-            "low",
-            "close",
-            "vol",
-            "amount",
-        )
-        params = (
-            ("ts_code", ts_code),
-            ("start_date", _format_date(start_date)),
-            ("end_date", _format_date(end_date)),
+        return self._fetch_daily_bars(
+            params=(
+                ("ts_code", ts_code),
+                ("start_date", _format_date(start_date)),
+                ("end_date", _format_date(end_date)),
+            ),
+            start_date=start_date,
+            end_date=end_date,
+            ts_code=ts_code,
         )
 
+    def fetch_daily_by_date(
+        self, *, trade_date: date, capture_sink: Callable[[object], None] | None = None
+    ) -> tuple[DailyBarRecord, ...]:
+        """Fetch one market day with pagination and the same unadjusted units."""
+        return self._fetch_daily_bars(
+            params=(("trade_date", _format_date(trade_date)),),
+            start_date=trade_date,
+            end_date=trade_date,
+            ts_code=None,
+            capture_sink=capture_sink,
+        )
+
+    def _fetch_daily_bars(
+        self,
+        *,
+        params: tuple[tuple[str, str], ...],
+        start_date: date,
+        end_date: date,
+        ts_code: str | None,
+        capture_sink: Callable[[object], None] | None = None,
+    ) -> tuple[DailyBarRecord, ...]:
+        fields = ("ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount")
         response = self._fetch_all_pages(
             api_name="daily",
             params=params,
             fields=fields,
             token=_read_token(),
+            capture_sink=capture_sink,
         )
 
         context = "daily"
@@ -604,10 +654,9 @@ class TushareClient:
 
         for row in response.items:
             row_code = validate_symbol(row[idx_ts_code], context=context)
-            if row_code != ts_code:
+            if ts_code is not None and row_code != ts_code:
                 raise ValueError(
-                    f"{context}: returned symbol {row_code!r} does not match "
-                    f"requested {ts_code!r}"
+                    f"{context}: returned symbol {row_code!r} does not match requested {ts_code!r}"
                 )
             trade_date = validate_trade_date(row[idx_trade_date], context=context)
             if trade_date < start_date or trade_date > end_date:

@@ -9,6 +9,7 @@ resolution-markers = [
 [manifest]
 members = [
     "ashare-data-gateway",
+    "ashare-obs",
     "ashare-pilot-next-workspace",
     "ashare-quant-core",
     "ashare-research-app",
@@ -75,6 +76,17 @@ wheels = [
 name = "ashare-data-gateway"
 version = "0.1.0"
 source = { editable = "services/data_gateway" }
+dependencies = [
+    { name = "ashare-obs" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "ashare-obs", editable = "packages/obs" }]
+
+[[package]]
+name = "ashare-obs"
+version = "0.1.0"
+source = { editable = "packages/obs" }
 
 [[package]]
 name = "ashare-pilot-next-workspace"
@@ -108,6 +120,7 @@ version = "0.1.0"
 source = { editable = "apps/research" }
 dependencies = [
     { name = "arch" },
+    { name = "ashare-obs" },
     { name = "ashare-quant-core" },
     { name = "jsonschema", extra = ["format"] },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -121,6 +134,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "arch", specifier = ">=8.0,<9" },
+    { name = "ashare-obs", editable = "packages/obs" },
     { name = "ashare-quant-core", editable = "packages/quant_core" },
     { name = "jsonschema", extras = ["format"], specifier = ">=4.25,<5" },
     { name = "numpy", specifier = ">=2.0,<3" },

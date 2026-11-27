@@ -6,13 +6,17 @@ Uses only the standard library. No third-party HTTP or data dependencies.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 from urllib.parse import urlparse
+
+from .request_budget import RequestBudget, shared_budget
 
 DEFAULT_TUSHARE_API_URL = "https://api.tushare.pro"
 URL_ENV_VAR = "TUSHARE_HTTP_URL"
@@ -97,6 +101,14 @@ class TushareTransientError(Exception):
         super().__init__(f"transient vendor error: {reason}")
 
 
+class TushareRateLimitError(TushareTransientError):
+    """Explicit vendor limit: stop the acquisition instead of immediate retries."""
+
+    def __init__(self, reason: str, retry_after: float = 60.0) -> None:
+        self.retry_after = retry_after
+        super().__init__(reason)
+
+
 @runtime_checkable
 class Transport(Protocol):
     """Protocol for injectable vendor transports (no real network in tests)."""
@@ -135,11 +147,43 @@ class HttpJsonTransport:
         *,
         base_url: str | None = None,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        budget: RequestBudget | None = None,
     ) -> None:
         resolved = base_url or resolve_base_url()
         _validate_base_url(resolved)
         self._base_url = resolved
         self._timeout_seconds = timeout_seconds
+        self._budget = budget if budget is not None else shared_budget(resolved)
+        capture_root = os.environ.get("TUSHARE_SOURCE_CAPTURE_ROOT")
+        if capture_root:
+            from .source_capture import receipt_time, response_observer
+
+            observe = response_observer(Path(capture_root))
+            self.source_capture_status = {
+                "completed": 0, "failed": 0, "skipped": 0, "lastFailure": None
+            }
+            self._capture_started_at = None
+
+            def begin_capture_call(api_name):
+                self._capture_started_at = receipt_time().isoformat()
+
+            def retain_completed_response(**kwargs):
+                try:
+                    receipt = observe(**kwargs, requested_at=self._capture_started_at)
+                    self.source_capture_status["completed" if receipt else "skipped"] += 1
+                    return receipt
+                except Exception as error:
+                    # An optional archive failure must not turn a valid response
+                    # into a different market-data result. Recovery fails closed
+                    # without this acquisition's retained receipt.
+                    reason = type(error).__name__
+                    self.source_capture_status["failed"] += 1
+                    self.source_capture_status["lastFailure"] = reason
+                    logging.getLogger(__name__).warning("source_capture_failed:%s", reason)
+                    return None
+
+            self.begin_logical_call = begin_capture_call
+            self.on_complete_response = retain_completed_response
 
     @property
     def base_url(self) -> str:
@@ -161,7 +205,12 @@ class HttpJsonTransport:
         # http_request.data contains the token; ensure the reference is gone
         # on every path before any exception propagates further.
         try:
+            self._budget.acquire()
             body = _perform_io(http_request, timeout_seconds=self._timeout_seconds)
+        except TushareRateLimitError as exc:
+            del http_request
+            self._budget.pause(exc.retry_after)
+            raise
         except Exception:
             del http_request
             raise
@@ -185,7 +234,8 @@ class HttpJsonTransport:
 
         if code != 0:
             if _is_transient_code(code):
-                raise TushareTransientError(f"vendor_code_{code}")
+                self._budget.pause(60.0)
+                raise TushareRateLimitError(f"vendor_code_{code}")
             raise TushareAPIError(code, _sanitize_vendor_msg(msg))
 
         data = document.get("data")
@@ -226,8 +276,12 @@ def _perform_io(
             return resp.read()
     except urllib.error.HTTPError as exc:
         code = exc.code
+        retry_after = exc.headers.get("Retry-After", "60") if exc.headers else "60"
         del http_request, exc
-        if code in (429, 500, 502, 503, 504):
+        if code == 429:
+            seconds = float(retry_after) if retry_after.isdigit() else 60.0
+            raise TushareRateLimitError("http_429", max(60.0, seconds)) from None
+        if code in (500, 502, 503, 504):
             raise TushareTransientError(f"http_{code}") from None
         raise TushareAPIError(0, f"http_error_{code}") from None
     except TimeoutError:

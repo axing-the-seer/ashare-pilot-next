@@ -45,11 +45,11 @@ jobs:
             install: ./packages/quant_core
             imports: import ashare_quant_core
           - name: data-gateway
-            install: ./services/data_gateway
+            install: ./packages/obs ./services/data_gateway
             imports: import ashare_data_gateway
           - name: research
-            install: ./packages/quant_core ./apps/research
-            imports: import arch, ashare_research_app, jsonschema, numpy, pandas, scipy, sklearn
+            install: ./packages/obs ./packages/quant_core ./apps/research
+            imports: import arch, ashare_obs, ashare_research_app.daily_model_v2_inputs, jsonschema, numpy, pandas, scipy, sklearn
           - name: signal-runner
             install: ./packages/quant_core ./apps/signal_runner
             imports: import ashare_signal_runner, jsonschema, numpy, sklearn
