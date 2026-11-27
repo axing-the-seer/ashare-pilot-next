@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 from urllib.parse import urlparse
 
+from .request_budget import RequestBudget, shared_budget
+
 DEFAULT_TUSHARE_API_URL = "https://api.tushare.pro"
 URL_ENV_VAR = "TUSHARE_HTTP_URL"
 DEFAULT_TIMEOUT_SECONDS = 30
@@ -97,6 +99,14 @@ class TushareTransientError(Exception):
         super().__init__(f"transient vendor error: {reason}")
 
 
+class TushareRateLimitError(TushareTransientError):
+    """Explicit vendor limit: stop the acquisition instead of immediate retries."""
+
+    def __init__(self, reason: str, retry_after: float = 60.0) -> None:
+        self.retry_after = retry_after
+        super().__init__(reason)
+
+
 @runtime_checkable
 class Transport(Protocol):
     """Protocol for injectable vendor transports (no real network in tests)."""
@@ -135,11 +145,13 @@ class HttpJsonTransport:
         *,
         base_url: str | None = None,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        budget: RequestBudget | None = None,
     ) -> None:
         resolved = base_url or resolve_base_url()
         _validate_base_url(resolved)
         self._base_url = resolved
         self._timeout_seconds = timeout_seconds
+        self._budget = budget if budget is not None else shared_budget(resolved)
 
     @property
     def base_url(self) -> str:
@@ -161,7 +173,12 @@ class HttpJsonTransport:
         # http_request.data contains the token; ensure the reference is gone
         # on every path before any exception propagates further.
         try:
+            self._budget.acquire()
             body = _perform_io(http_request, timeout_seconds=self._timeout_seconds)
+        except TushareRateLimitError as exc:
+            del http_request
+            self._budget.pause(exc.retry_after)
+            raise
         except Exception:
             del http_request
             raise
@@ -185,7 +202,8 @@ class HttpJsonTransport:
 
         if code != 0:
             if _is_transient_code(code):
-                raise TushareTransientError(f"vendor_code_{code}")
+                self._budget.pause(60.0)
+                raise TushareRateLimitError(f"vendor_code_{code}")
             raise TushareAPIError(code, _sanitize_vendor_msg(msg))
 
         data = document.get("data")
@@ -226,8 +244,12 @@ def _perform_io(
             return resp.read()
     except urllib.error.HTTPError as exc:
         code = exc.code
+        retry_after = exc.headers.get("Retry-After", "60") if exc.headers else "60"
         del http_request, exc
-        if code in (429, 500, 502, 503, 504):
+        if code == 429:
+            seconds = float(retry_after) if retry_after.isdigit() else 60.0
+            raise TushareRateLimitError("http_429", max(60.0, seconds)) from None
+        if code in (500, 502, 503, 504):
             raise TushareTransientError(f"http_{code}") from None
         raise TushareAPIError(0, f"http_error_{code}") from None
     except TimeoutError:

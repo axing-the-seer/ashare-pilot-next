@@ -35,6 +35,7 @@ from .tushare_transport import (
     Transport,
     TransportRequest,
     TransportResponse,
+    TushareRateLimitError,
     TushareTransientError,
 )
 
@@ -147,6 +148,9 @@ class TushareClient:
         for attempt in range(self._max_retries):
             try:
                 return self._transport.send(request, token=token)
+            except TushareRateLimitError:
+                del token
+                raise
             except TushareTransientError as exc:
                 last_error = exc
                 if attempt < self._max_retries - 1:
