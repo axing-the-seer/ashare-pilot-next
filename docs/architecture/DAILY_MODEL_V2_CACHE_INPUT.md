@@ -1,0 +1,34 @@
+# Daily model v2 cache input
+
+`ashare_research_app.daily_model_v2_cache` is the cache-building command used
+by the existing personal daily cycle. This slice brings that data entry and its
+source-bound reader into the clean research tree. It does not migrate the
+personal cycle, train a model, publish a recommendation, or activate a champion.
+
+The producer retains `daily-model-v2-cache/v1`: source manifest identifiers and
+hashes, risk history binding, array file hashes, dtypes, shapes, price metadata,
+and the executing cache code hash are retained. The executing code hash changes
+when the producer source changes, so a newly built cache can have a different
+cache ID even when its array files and source bindings are byte-identical.
+
+To read and validate an already built cache through the same data command, pass
+`--repo`, `--panel-manifest-id`, `--overlay-manifest-id`, `--risk-id`, `--as-of`
+and `--verify-cache-id`. Verification is read-only. It checks the source IDs,
+hashes and as-of bindings, the individual array hashes, shape and dtype,
+feature order and value domains, alignment, and price dates. It validates each
+day with a short-lived mapping, closes that mapping, and does not read model
+weights. It does not prove first-delivery time, completeness of the upstream
+market data, statistical quality or production eligibility.
+
+The checked-in semantic document is the exact ordered `production50` document
+from the previously reviewed registry, with SHA-256
+`07b586cfb06aa1012f935e883946f7623f3c2bac4556225c1a8a8359562ffcb4`.
+Its first 36 columns are the panel and the remaining 14 are the financial
+overlay. It is a frozen compatibility bridge for this input format. When the
+full feature registry is migrated, its semantic document must match this hash
+and the reader should use that registry rather than maintaining two versions.
+
+The normal personal refit still requires the personal training entry, model
+source and provenance binding, coverage qualification, and other research
+dependencies. Until those are migrated and tested, this cache reader alone
+does not repair the installed app's automatic refit.

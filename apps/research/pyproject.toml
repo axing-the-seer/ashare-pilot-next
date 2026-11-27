@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Experiment, race, evaluation, and promotion application"
 requires-python = ">=3.11"
 dependencies = [
+    "ashare-obs",
     "arch>=8.0,<9",
     "ashare-quant-core",
     "numpy>=2.0,<3",
@@ -22,6 +23,7 @@ ashare-auxiliary-race = "ashare_research_app.auxiliary_race:main"
 ashare-slow-alpha-race = "ashare_research_app.slow_alpha_race:main"
 
 [tool.uv.sources]
+ashare-obs = {workspace = true}
 ashare-quant-core = {workspace = true}
 
 [build-system]
