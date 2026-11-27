@@ -1,5 +1,7 @@
 """Restart, real process contention, cooldown and fail-closed transport coverage."""
 
+import hashlib
+import json
 import multiprocessing
 import sqlite3
 import urllib.error
@@ -231,3 +233,84 @@ def test_default_factory_groups_credentials_and_paths_by_provider(monkeypatch, t
     assert isinstance(first, PersistentRequestBudget)
     assert "CANARY" not in str(first.path)
     assert first is not shared_budget("https://different.test")
+
+
+def test_default_transport_keeps_existing_75s_policy_cooldown_and_rate_failure(
+    monkeypatch, tmp_path
+):
+    from ashare_data_gateway import persistent_budget, request_budget
+
+    monkeypatch.setenv("TUSHARE_BUDGET_DIR", str(tmp_path))
+    monkeypatch.setenv("TUSHARE_TOKEN", "TEST-NOT-A-REAL-KEY")
+    monkeypatch.delenv("TUSHARE_SOURCE_CAPTURE_ROOT", raising=False)
+    clock = Clock()
+    provider = "https://same-provider.test"
+    name = hashlib.sha256(b"same-provider.test:443").hexdigest() + ".sqlite3"
+    path = tmp_path / name
+    seed = budget(path, clock, min_interval=75, max_requests=5000)
+    seed.acquire()
+    seed.pause(120)
+
+    actual_budget = persistent_budget.PersistentRequestBudget
+
+    def restarted_budget(*, path):
+        # The default constructor still requests 2 seconds; the existing
+        # durable ledger must win. The fake clock avoids waiting in a test.
+        return actual_budget(path=path, clock=clock.read, sleep=clock.sleep)
+
+    monkeypatch.setattr(persistent_budget, "PersistentRequestBudget", restarted_budget)
+    calls = []
+    limited = False
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def read(self):
+            data = {
+                "fields": ["exchange", "cal_date", "is_open", "pretrade_date"],
+                "items": [["SSE", "20260925", 1, "20260924"]],
+            }
+            return json.dumps({"code": 0, "msg": "", "data": data}).encode()
+
+    def urlopen(*args, **kwargs):
+        calls.append(1)
+        if limited:
+            raise urllib.error.HTTPError(provider, 429, "limited", {"Retry-After": "900"}, None)
+        return Response()
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+    def client():
+        return TushareClient(HttpJsonTransport(base_url=provider), max_retries=3)
+
+    def fetch(instance):
+        return instance.fetch_trade_cal(
+            exchange="SSE", start_date=date(2026, 9, 25), end_date=date(2026, 9, 25)
+        )
+
+    with pytest.raises(RequestBudgetExceeded, match="cooldown"):
+        fetch(client())
+    assert calls == []
+    clock.now += 120
+    assert len(fetch(client())) == 1
+    # Drop only this synthetic path's process cache to model a new worker.
+    request_budget._BUDGETS.pop(str(path))
+    assert len(fetch(client())) == 1 and clock.waits == [75]
+    limited = True
+    with pytest.raises(TushareRateLimitError):
+        fetch(client())
+    assert len(calls) == 3  # A 429 stops immediately, even with max_retries=3.
+    with sqlite3.connect(path) as connection:
+        row = connection.execute(
+            "SELECT interval_seconds, maximum, blocked_until FROM policy"
+        ).fetchone()
+        reservations = connection.execute("SELECT COUNT(*) FROM reservations").fetchone()[0]
+    assert row == (75.0, 5000, clock.now + 900) and reservations == 4
+    request_budget._BUDGETS.pop(str(path))
+    with pytest.raises(RequestBudgetExceeded, match="cooldown"):
+        fetch(client())
+    assert len(calls) == 3
