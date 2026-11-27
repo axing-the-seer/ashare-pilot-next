@@ -152,6 +152,19 @@ def test_research_can_import_quant_core(tmp_path: Path) -> None:
     assert check_repository(tmp_path) == []
 
 
+def test_observability_dependency_does_not_relax_quant_core_boundary(tmp_path: Path) -> None:
+    write(tmp_path, "packages/obs/src/ashare_obs/__init__.py", "VALUE = 1\n")
+    write(tmp_path, "apps/research/src/ashare_research_app/model.py", "import ashare_obs\n")
+    write(
+        tmp_path, "services/data_gateway/src/ashare_data_gateway/source.py", "import ashare_obs\n"
+    )
+    write(tmp_path, "packages/quant_core/src/ashare_quant_core/model.py", "import ashare_obs\n")
+
+    assert check_repository(tmp_path) == [
+        "forbidden import in packages/quant_core/src/ashare_quant_core/model.py: ashare_obs"
+    ]
+
+
 def test_unknown_python_area_is_rejected(tmp_path: Path) -> None:
     write(tmp_path, "apps/new_worker/worker.py", "VALUE = 1\n")
 

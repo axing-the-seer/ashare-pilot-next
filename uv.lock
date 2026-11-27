@@ -9,6 +9,7 @@ resolution-markers = [
 [manifest]
 members = [
     "ashare-data-gateway",
+    "ashare-obs",
     "ashare-pilot-next-workspace",
     "ashare-quant-core",
     "ashare-research-app",
@@ -75,6 +76,11 @@ wheels = [
 name = "ashare-data-gateway"
 version = "0.1.0"
 source = { editable = "services/data_gateway" }
+
+[[package]]
+name = "ashare-obs"
+version = "0.1.0"
+source = { editable = "packages/obs" }
 
 [[package]]
 name = "ashare-pilot-next-workspace"

@@ -61,6 +61,7 @@ MAX_TRACKED_FILE_BYTES = 1_000_000
 
 INTERNAL_IMPORTS = {
     "ashare_data_gateway",
+    "ashare_obs",
     "ashare_quant_core",
     "ashare_research_app",
     "ashare_sim_account",
@@ -69,6 +70,7 @@ INTERNAL_IMPORTS = {
 }
 INTERNAL_DISTRIBUTIONS = {
     "ashare-data-gateway",
+    "ashare-obs",
     "ashare-quant-core",
     "ashare-research-app",
     "ashare-sim-account",
@@ -76,9 +78,10 @@ INTERNAL_DISTRIBUTIONS = {
     "ashare-web",
 }
 ALLOWED_INTERNAL_IMPORTS = {
+    "packages/obs": {"ashare_obs"},
     "packages/quant_core": {"ashare_quant_core"},
-    "services/data_gateway": {"ashare_data_gateway"},
-    "apps/research": {"ashare_quant_core", "ashare_research_app"},
+    "services/data_gateway": {"ashare_data_gateway", "ashare_obs"},
+    "apps/research": {"ashare_obs", "ashare_quant_core", "ashare_research_app"},
     "apps/sim_account": {
         "ashare_quant_core",
         "ashare_signal_runner",
@@ -91,9 +94,10 @@ ALLOWED_INTERNAL_IMPORTS = {
 }
 ALLOWED_INTERNAL_DISTRIBUTIONS = {
     ".": set(),
+    "packages/obs": set(),
     "packages/quant_core": set(),
-    "services/data_gateway": set(),
-    "apps/research": {"ashare-quant-core"},
+    "services/data_gateway": {"ashare-obs"},
+    "apps/research": {"ashare-obs", "ashare-quant-core"},
     "apps/sim_account": {"ashare-quant-core", "ashare-signal-runner"},
     "apps/signal_runner": {"ashare-quant-core"},
     "apps/web": {"ashare-signal-runner"},
