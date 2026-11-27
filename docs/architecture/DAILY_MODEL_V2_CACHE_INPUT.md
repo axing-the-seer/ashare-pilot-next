@@ -27,6 +27,14 @@ labels remain `NaN`. The reader also checks the price array axes. Before reusing
 an existing cache directory, the producer verifies its expected contents; a
 conflict is rejected without replacing the existing directory.
 
+These checks bind the cache to its declared source IDs and check its own file
+hashes; they do not independently derive the cached values from the source
+panel. In particular, a self-consistent cache with its label columns swapped
+can pass shape and hash checks. `validated` alone therefore does not prove that
+the label values correspond to the declared 5/10/20-day order or that the
+cache was produced by the claimed source execution. A training qualification
+must establish provenance and label semantics separately.
+
 The checked-in semantic document is the exact ordered `production50` document
 from the previously reviewed registry, with SHA-256
 `07b586cfb06aa1012f935e883946f7623f3c2bac4556225c1a8a8359562ffcb4`.
