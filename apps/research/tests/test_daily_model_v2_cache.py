@@ -159,9 +159,18 @@ def test_normal_cache_command_builds_and_reads_same_bound_arrays(tmp_path):
     detail = json.loads(checked.stdout)
     assert detail["validated"] is True and detail["semantic_sha256"] == SEMANTICS_SHA256
     assert detail["validation_scope_version"] == "daily-model-v2-cache-validation/v1"
-    assert "panel_and_price_axes_and_date_order" in detail["validated_checks"]
-    assert "cached_values_derived_from_declared_sources" in detail["not_verified"]
-    assert "label_value_horizon_semantics" in detail["not_verified"]
+    assert detail["validated_checks"] == [
+        "declared_manifest_and_risk_hash_bindings_and_as_of",
+        "cache_file_hashes_shapes_and_dtypes",
+        "feature_names_and_value_domains",
+        "panel_axis_shapes_date_order_and_price_array_shapes",
+    ]
+    assert detail["not_verified"] == [
+        "cached_values_derived_from_declared_sources",
+        "label_value_horizon_semantics",
+        "upstream_arrival_time_and_historical_pit",
+        "upstream_completeness_and_training_qualification",
+    ]
     assert detail["base_shape"] == [3, 3, 36] and detail["financial_shape"] == [3, 3, 14]
     assert _snapshot(tmp_path / "runtime") == before
     future = run_cache(source, verify=cache_id, as_of="2026-11-26T22:00:00+08:00")

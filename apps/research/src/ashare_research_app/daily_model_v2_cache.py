@@ -234,10 +234,10 @@ def main(argv=None):
                 "validated": True,
                 "validation_scope_version": "daily-model-v2-cache-validation/v1",
                 "validated_checks": [
-                    "declared_source_hashes_and_as_of",
+                    "declared_manifest_and_risk_hash_bindings_and_as_of",
                     "cache_file_hashes_shapes_and_dtypes",
                     "feature_names_and_value_domains",
-                    "panel_and_price_axes_and_date_order",
+                    "panel_axis_shapes_date_order_and_price_array_shapes",
                 ],
                 "not_verified": [
                     "cached_values_derived_from_declared_sources",
