@@ -19,6 +19,8 @@ feature order and value domains, alignment, and price dates. It validates each
 day with a short-lived mapping, closes that mapping, and does not read model
 weights. It does not prove first-delivery time, completeness of the upstream
 market data, statistical quality or production eligibility.
+The machine-readable result retains `validated` for compatibility and includes
+`validated_checks` and `not_verified` to state that validation's scope.
 
 The cache producer and reader require nonempty, strictly increasing ISO dates,
 unique symbols, and feature and label axes aligned to those dates and symbols.

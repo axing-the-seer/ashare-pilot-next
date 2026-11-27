@@ -232,6 +232,19 @@ def main(argv=None):
             result = {
                 "cache_id": cache_id,
                 "validated": True,
+                "validation_scope_version": "daily-model-v2-cache-validation/v1",
+                "validated_checks": [
+                    "declared_source_hashes_and_as_of",
+                    "cache_file_hashes_shapes_and_dtypes",
+                    "feature_names_and_value_domains",
+                    "panel_and_price_axes_and_date_order",
+                ],
+                "not_verified": [
+                    "cached_values_derived_from_declared_sources",
+                    "label_value_horizon_semantics",
+                    "upstream_arrival_time_and_historical_pit",
+                    "upstream_completeness_and_training_qualification",
+                ],
                 "semantic_sha256": SEMANTICS_SHA256,
                 "days": int(len(inputs["days"])),
                 "symbols": int(len(inputs["symbols"])),
