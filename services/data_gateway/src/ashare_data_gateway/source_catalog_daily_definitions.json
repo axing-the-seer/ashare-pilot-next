@@ -1,0 +1,145 @@
+{
+  "format": "source-field-definitions-slice/v1",
+  "sourceFormat": "source-field-definitions/v1",
+  "sourceSha256": "dac926958e81c52d73eefc1abe3b0448459fe71eb8e5561ffa223d1d7bf402c2",
+  "scope": [
+    "tushare.daily",
+    "tushare.trade_cal"
+  ],
+  "datasets": [
+    {
+      "api": "trade_cal",
+      "fields": [
+        "exchange",
+        "cal_date",
+        "is_open",
+        "pretrade_date"
+      ],
+      "label": "交易日历",
+      "category": "证券与交易日历",
+      "source": "tushare",
+      "id": "tushare.trade_cal",
+      "document": "https://tushare.pro/wctapi/documents/26.md",
+      "documentFields": [
+        {
+          "raw": "exchange",
+          "type": "str",
+          "description": "交易所 SSE上交所 SZSE深交所"
+        },
+        {
+          "raw": "cal_date",
+          "type": "str",
+          "description": "日历日期"
+        },
+        {
+          "raw": "is_open",
+          "type": "str",
+          "description": "是否交易 0休市 1交易"
+        },
+        {
+          "raw": "pretrade_date",
+          "type": "str",
+          "description": "上一个交易日"
+        }
+      ],
+      "evidenceReferences": []
+    },
+    {
+      "api": "daily",
+      "fields": [
+        "ts_code",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "pre_close",
+        "change",
+        "pct_chg",
+        "vol",
+        "amount",
+        "ah_vol",
+        "ah_amount"
+      ],
+      "label": "日线行情",
+      "category": "行情与估值",
+      "source": "tushare",
+      "id": "tushare.daily",
+      "document": "https://tushare.pro/wctapi/documents/27.md",
+      "documentFields": [
+        {
+          "raw": "ts_code",
+          "type": "str",
+          "description": "股票代码"
+        },
+        {
+          "raw": "trade_date",
+          "type": "str",
+          "description": "交易日期"
+        },
+        {
+          "raw": "open",
+          "type": "float",
+          "description": "开盘价"
+        },
+        {
+          "raw": "high",
+          "type": "float",
+          "description": "最高价"
+        },
+        {
+          "raw": "low",
+          "type": "float",
+          "description": "最低价"
+        },
+        {
+          "raw": "close",
+          "type": "float",
+          "description": "收盘价"
+        },
+        {
+          "raw": "pre_close",
+          "type": "float",
+          "description": "昨收价【除权价】"
+        },
+        {
+          "raw": "change",
+          "type": "float",
+          "description": "涨跌额"
+        },
+        {
+          "raw": "pct_chg",
+          "type": "float",
+          "description": "涨跌幅（%） 【基于除权后的昨收计算的涨跌幅：（今收-除权昨收）/除权昨收 】"
+        },
+        {
+          "raw": "vol",
+          "type": "float",
+          "description": "成交量 （手）"
+        },
+        {
+          "raw": "amount",
+          "type": "float",
+          "description": "成交额 （千元）"
+        },
+        {
+          "raw": "ah_vol",
+          "type": "float",
+          "description": "盘后成交量 （手）"
+        },
+        {
+          "raw": "ah_amount",
+          "type": "float",
+          "description": "盘后成交额 （千元）"
+        }
+      ],
+      "evidenceReferences": [
+        {
+          "path": "runtime/decision-data-survey-20261019/probe-results.json",
+          "label": "daily_16"
+        }
+      ],
+      "maxPageRows": 6000
+    }
+  ]
+}

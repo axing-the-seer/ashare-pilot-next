@@ -76,6 +76,12 @@ wheels = [
 name = "ashare-data-gateway"
 version = "0.1.0"
 source = { editable = "services/data_gateway" }
+dependencies = [
+    { name = "ashare-obs" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "ashare-obs", editable = "packages/obs" }]
 
 [[package]]
 name = "ashare-obs"

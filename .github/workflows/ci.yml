@@ -45,7 +45,7 @@ jobs:
             install: ./packages/quant_core
             imports: import ashare_quant_core
           - name: data-gateway
-            install: ./services/data_gateway
+            install: ./packages/obs ./services/data_gateway
             imports: import ashare_data_gateway
           - name: research
             install: ./packages/obs ./packages/quant_core ./apps/research

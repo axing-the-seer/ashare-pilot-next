@@ -6,11 +6,13 @@ Uses only the standard library. No third-party HTTP or data dependencies.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 from urllib.parse import urlparse
 
@@ -152,6 +154,36 @@ class HttpJsonTransport:
         self._base_url = resolved
         self._timeout_seconds = timeout_seconds
         self._budget = budget if budget is not None else shared_budget(resolved)
+        capture_root = os.environ.get("TUSHARE_SOURCE_CAPTURE_ROOT")
+        if capture_root:
+            from .source_capture import receipt_time, response_observer
+
+            observe = response_observer(Path(capture_root))
+            self.source_capture_status = {
+                "completed": 0, "failed": 0, "skipped": 0, "lastFailure": None
+            }
+            self._capture_started_at = None
+
+            def begin_capture_call(api_name):
+                self._capture_started_at = receipt_time().isoformat()
+
+            def retain_completed_response(**kwargs):
+                try:
+                    receipt = observe(**kwargs, requested_at=self._capture_started_at)
+                    self.source_capture_status["completed" if receipt else "skipped"] += 1
+                    return receipt
+                except Exception as error:
+                    # An optional archive failure must not turn a valid response
+                    # into a different market-data result. Recovery fails closed
+                    # without this acquisition's retained receipt.
+                    reason = type(error).__name__
+                    self.source_capture_status["failed"] += 1
+                    self.source_capture_status["lastFailure"] = reason
+                    logging.getLogger(__name__).warning("source_capture_failed:%s", reason)
+                    return None
+
+            self.begin_logical_call = begin_capture_call
+            self.on_complete_response = retain_completed_response
 
     @property
     def base_url(self) -> str:
